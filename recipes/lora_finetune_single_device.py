@@ -337,7 +337,8 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
 
         # Set up profiler, returns DummyProfiler (nullcontext object with no-op `step` method)
         # if cfg is missing profiler key or if `cfg.profiler.enabled = False
-        self._profiler = self._setup_profiler(cfg.get(PROFILER_KEY, None))
+        # self._profiler = self._setup_profiler(cfg.get(PROFILER_KEY, None))
+        self._profiler = DummyProfiler()
 
         # Used to ignore labels for loss computation
         self.ignore_labels_cache = torch.full(
@@ -479,9 +480,9 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
 
         log.info(f"Model is initialized with precision {self._dtype}.")
 
-        if self._device.type != "cpu":
-            memory_stats = training.get_memory_stats(device=self._device)
-            training.log_memory_stats(memory_stats)
+        # if self._device.type != "cpu":
+        #     memory_stats = training.get_memory_stats(device=self._device)
+        #     training.log_memory_stats(memory_stats)
         return model
 
     def _setup_optimizer(
@@ -684,12 +685,12 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
                         break
 
                     # Start tracking CUDA memory for active steps for just the first epoch
-                    if (
-                        curr_epoch == 0
-                        and self.profiler_profile_memory
-                        and idx == self.profiler_wait_steps + self.profiler_warmup_steps
-                    ):
-                        torch.cuda.memory._record_memory_history()
+                    # if (
+                    #     curr_epoch == 0
+                    #     and self.profiler_profile_memory
+                    #     and idx == self.profiler_wait_steps + self.profiler_warmup_steps
+                    # ):
+                    #     torch.cuda.memory._record_memory_history()
 
                     utils.batch_to_device(batch, self._device)
 
@@ -754,15 +755,15 @@ class LoRAFinetuneRecipeSingleDevice(FTRecipeInterface):
                         t0 = time.perf_counter()
 
                     # Stop tracking CUDA memory now that active steps are complete
-                    if (
-                        curr_epoch == 0
-                        and self.profiler_profile_memory
-                        and idx
-                        == self.profiler_wait_steps
-                        + self.profiler_warmup_steps
-                        + self.profiler_active_steps
-                    ):
-                        torch.cuda.memory._record_memory_history(enabled=None)
+                    # if (
+                    #     curr_epoch == 0
+                    #     and self.profiler_profile_memory
+                    #     and idx
+                    #     == self.profiler_wait_steps
+                    #     + self.profiler_warmup_steps
+                    #     + self.profiler_active_steps
+                    # ):
+                    #     torch.cuda.memory._record_memory_history(enabled=None)
 
                     # Step the profiler
                     # Note we are stepping each batch, which might not include optimizer step in the trace
