@@ -20,10 +20,11 @@ from torch.utils.data import DataLoader, DistributedSampler
 from torchtune import config, generation, modules, rlhf, training, utils
 from torchtune.config._utils import _get_component_from_path
 from torchtune.datasets import ConcatDataset
+from torchtune.dev.grpo.generation import generate
+from torchtune.dev.grpo.rewards import batch_shaped_correctness_reward
+from torchtune.dev.grpo.types import GRPOStats, GRPOTrajectory
 from torchtune.modules import local_kv_cache
 from torchtune.recipe_interfaces import FTRecipeInterface
-from torchtune.rlhf import batch_shaped_correctness_reward
-from torchtune.rlhf._types import GRPOStats, GRPOTrajectory
 from torchtune.training import disable_dropout, DummyProfiler, PROFILER_KEY
 from torchtune.training.lr_schedulers import get_lr
 from tqdm import tqdm
@@ -247,7 +248,9 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
 
         # sampler and dataloader depend on the tokenizer and loss_fn and should be
         # setup after both of these are initialized
-        collate_name = cfg.get("collate_fn", "torchtune.data.padded_collate_rl")
+        collate_name = cfg.get(
+            "collate_fn", "torchtune.dev.grpo.data.padded_collate_rl"
+        )
         self._sampler, self._dataloader = self._setup_data(
             cfg_dataset=cfg.dataset,
             shuffle=cfg.shuffle,
@@ -718,7 +721,7 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
             dtype=self._dtype,
             decoder_max_seq_len=context_length + self._max_generated_tokens,
         ):
-            query_responses, _ = generation.generate(  # [B x G, L], [B x G, L, V]
+            query_responses, _ = generate(  # [B x G, L], [B x G, L, V]
                 model=self._model,
                 prompt=batch_input_ids,
                 max_generated_tokens=self._max_generated_tokens,
@@ -727,11 +730,11 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
                 pad_id=self._tokenizer.pad_id,
                 rng=self._rng,
                 stop_tokens=self._tokenizer.stop_tokens,
-                return_logits=False
+                return_logits=False,
             )
 
         torch.distributed.barrier()
-        training.recursive_reshard(self._model)
+        training._distributed.recursive_reshard(self._model)
         torch.cuda.empty_cache()
 
         responses = query_responses[:, context_length:].clone()
@@ -747,7 +750,6 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
 
         del query_response_padding_masks
 
-        # step 2. estimate logprobs of the responses using the current policy
         logits = self._model(query_responses, input_pos=position_ids, mask=masks)
 
         # step 2. estimate logprobs of the responses using the current policy
